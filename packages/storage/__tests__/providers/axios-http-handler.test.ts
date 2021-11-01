@@ -1,5 +1,4 @@
 import axios from 'axios';
-
 import {
 	AxiosHttpHandler,
 	reactNativeRequestTransformer,
@@ -10,14 +9,14 @@ import { Platform, Logger } from '@aws-amplify/core';
 jest.mock('axios');
 jest.useFakeTimers();
 
-let request: HttpRequest = null;
+let request: HttpRequest;
 
 const options = {};
 
 describe('AxiosHttpHandler', () => {
 	beforeEach(() => {
 		Platform.isReactNative = false;
-		axios.request.mockResolvedValue({});
+		jest.spyOn(axios, 'request').mockResolvedValue({});
 		request = {
 			method: 'get',
 			path: '/',
@@ -26,7 +25,7 @@ describe('AxiosHttpHandler', () => {
 			port: 3000,
 			query: {},
 			headers: {},
-			clone: null,
+			clone: () => (null as unknown) as HttpRequest,
 		};
 	});
 
@@ -57,7 +56,7 @@ describe('AxiosHttpHandler', () => {
 				method: 'get',
 				responseType: 'blob',
 				url: 'http://localhost:3000/?key=value',
-			})
+			});
 		});
 
 		it("should update data to null when it's undefined and content-type header is set", async () => {
@@ -94,7 +93,7 @@ describe('AxiosHttpHandler', () => {
 			const mockCancelToken = jest.fn().mockImplementationOnce(() => ({
 				token: 'token',
 			}));
-			const handler = new AxiosHttpHandler({}, null, mockCancelToken());
+			const handler = new AxiosHttpHandler({}, undefined, mockCancelToken());
 			await handler.handle(request, options);
 
 			expect(axios.request).toHaveBeenLastCalledWith({
@@ -111,11 +110,12 @@ describe('AxiosHttpHandler', () => {
 			const mockEmitter = jest.fn().mockImplementationOnce(() => ({
 				emit: mockEmit,
 			}));
+			const axiosRequestSpy = jest.spyOn(axios, 'request');
 			const handler = new AxiosHttpHandler({}, mockEmitter());
 			await handler.handle(request, options);
 
 			const lastCall =
-				axios.request.mock.calls[axios.request.mock.calls.length - 1][0];
+				axiosRequestSpy.mock.calls[axiosRequestSpy.mock.calls.length - 1][0];
 
 			expect(lastCall).toStrictEqual({
 				headers: {},
@@ -123,11 +123,23 @@ describe('AxiosHttpHandler', () => {
 				responseType: 'blob',
 				url: 'http://localhost:3000/',
 				onUploadProgress: expect.any(Function),
+				onDownloadProgress: expect.any(Function),
 			});
 
-			// Invoke the request's onUploadProgress function manually
-			lastCall.onUploadProgress({ loaded: 10, total: 100 });
-			expect(mockEmit).toHaveBeenLastCalledWith('sendProgress', {
+			if (lastCall.onUploadProgress) {
+				// Invoke the request's onUploadProgress function manually
+				lastCall.onUploadProgress({ loaded: 10, total: 100 });
+			}
+			expect(mockEmit).toHaveBeenLastCalledWith('sendUploadProgress', {
+				loaded: 10,
+				total: 100,
+			});
+
+			if (lastCall.onDownloadProgress) {
+				// Invoke the request's onDownloadProgress function manually
+				lastCall.onDownloadProgress({ loaded: 10, total: 100 });
+			}
+			expect(mockEmit).toHaveBeenLastCalledWith('sendDownloadProgress', {
 				loaded: 10,
 				total: 100,
 			});
@@ -144,16 +156,26 @@ describe('AxiosHttpHandler', () => {
 			);
 		});
 
-		it('axios request should log and re-throw error', async () => {
+		it('axios request should log errors', async () => {
 			axios.request = jest
 				.fn()
 				.mockImplementation(() => Promise.reject(new Error('err')));
 			const loggerSpy = jest.spyOn(Logger.prototype, '_log');
 			const handler = new AxiosHttpHandler();
+			await handler.handle(request, options);
+			expect(loggerSpy).toHaveBeenCalledWith('ERROR', 'err');
+		});
+
+		it('cancel request should throw error', async () => {
+			expect.assertions(1);
+			axios.isCancel = jest.fn().mockImplementation(() => true);
+			axios.request = jest
+				.fn()
+				.mockImplementation(() => Promise.reject(new Error('err')));
+			const handler = new AxiosHttpHandler();
 			await expect(handler.handle(request, options)).rejects.toThrowError(
 				'err'
 			);
-			expect(loggerSpy).toHaveBeenCalledWith('ERROR', 'err');
 		});
 	});
 
@@ -169,10 +191,10 @@ describe('AxiosHttpHandler', () => {
 		});
 
 		it('should run defaultTransformers logic on everything else', () => {
-			const mockTransformer = jest.fn()
+			const mockTransformer = jest.fn();
 			axios.defaults.transformRequest = [mockTransformer];
 			reactNativeRequestTransformer[0]('data', {});
 			expect(mockTransformer).toHaveBeenCalledTimes(1);
-		})
+		});
 	});
 });

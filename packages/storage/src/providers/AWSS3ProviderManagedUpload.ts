@@ -28,14 +28,23 @@ import {
 	AbortMultipartUploadCommand,
 	CompletedPart,
 } from '@aws-sdk/client-s3';
-import { AxiosHttpHandler, SEND_PROGRESS_EVENT } from './axios-http-handler';
+import {
+	AxiosHttpHandler,
+	SEND_UPLOAD_PROGRESS_EVENT,
+	SEND_DOWNLOAD_PROGRESS_EVENT,
+} from './axios-http-handler';
+import {
+	SET_CONTENT_LENGTH_HEADER,
+	localTestingStorageEndpoint,
+} from '../common/StorageConstants';
 import * as events from 'events';
+import {
+	createPrefixMiddleware,
+	prefixMiddlewareOptions,
+} from '../common/S3ClientUtils';
 
 const logger = new Logger('AWSS3ProviderManagedUpload');
 
-const localTestingStorageEndpoint = 'http://localhost:20005';
-
-const SET_CONTENT_LENGTH_HEADER = 'contentLengthMiddleware';
 export declare interface Part {
 	bodyPart: any;
 	partNumber: number;
@@ -51,7 +60,7 @@ export class AWSS3ProviderManagedUpload {
 
 	// Data for current upload
 	private body = null;
-	private params = null;
+	private params: PutObjectRequest = null;
 	private opts = null;
 	private completedParts: CompletedPart[] = [];
 	private cancel = false;
@@ -140,27 +149,6 @@ export class AWSS3ProviderManagedUpload {
 			this.params
 		);
 		const s3 = await this._createNewS3Client(this.opts);
-
-		// @aws-sdk/client-s3 seems to be ignoring the `ContentType` parameter, so we
-		// are explicitly adding it via middleware.
-		// https://github.com/aws/aws-sdk-js-v3/issues/2000
-		s3.middlewareStack.add(
-			next => (args: any) => {
-				if (
-					this.params.ContentType &&
-					args &&
-					args.request &&
-					args.request.headers
-				) {
-					args.request.headers['Content-Type'] = this.params.ContentType;
-				}
-				return next(args);
-			},
-			{
-				step: 'build',
-			}
-		);
-
 		const response = await s3.send(createMultiPartUploadCommand);
 		logger.debug(response.UploadId);
 		return response.UploadId;
@@ -176,13 +164,23 @@ export class AWSS3ProviderManagedUpload {
 				parts.map(async part => {
 					this.setupEventListener(part);
 					const s3 = await this._createNewS3Client(this.opts, part.emitter);
+					const {
+						Key,
+						Bucket,
+						SSECustomerAlgorithm,
+						SSECustomerKey,
+						SSECustomerKeyMD5,
+					} = this.params;
 					return s3.send(
 						new UploadPartCommand({
 							PartNumber: part.partNumber,
 							Body: part.bodyPart,
 							UploadId: uploadId,
-							Key: this.params.Key,
-							Bucket: this.params.Bucket,
+							Key,
+							Bucket,
+							...(SSECustomerAlgorithm && { SSECustomerAlgorithm }),
+							...(SSECustomerKey && { SSECustomerKey }),
+							...(SSECustomerKeyMD5 && { SSECustomerKeyMD5 }),
 						})
 					);
 				})
@@ -267,11 +265,12 @@ export class AWSS3ProviderManagedUpload {
 	}
 
 	private removeEventListener(part: Part) {
-		part.emitter.removeAllListeners(SEND_PROGRESS_EVENT);
+		part.emitter.removeAllListeners(SEND_UPLOAD_PROGRESS_EVENT);
+		part.emitter.removeAllListeners(SEND_DOWNLOAD_PROGRESS_EVENT);
 	}
 
 	private setupEventListener(part: Part) {
-		part.emitter.on(SEND_PROGRESS_EVENT, progress => {
+		part.emitter.on(SEND_UPLOAD_PROGRESS_EVENT, progress => {
 			this.progressChanged(
 				part.partNumber,
 				progress.loaded - part._lastUploadedBytes
@@ -282,7 +281,7 @@ export class AWSS3ProviderManagedUpload {
 
 	private progressChanged(partNumber: number, incrementalUpdate: number) {
 		this.bytesUploaded += incrementalUpdate;
-		this.emitter.emit(SEND_PROGRESS_EVENT, {
+		this.emitter.emit(SEND_UPLOAD_PROGRESS_EVENT, {
 			loaded: this.bytesUploaded,
 			total: this.totalBytesToUpload,
 			part: partNumber,
@@ -347,6 +346,7 @@ export class AWSS3ProviderManagedUpload {
 			region,
 			dangerouslyConnectToHttpEndpointForTesting,
 			cancelTokenSource,
+			useAccelerateEndpoint,
 		} = config;
 		let localTestingConfig = {};
 
@@ -362,11 +362,16 @@ export class AWSS3ProviderManagedUpload {
 		const client = new S3Client({
 			region,
 			credentials,
+			useAccelerateEndpoint,
 			...localTestingConfig,
 			requestHandler: new AxiosHttpHandler({}, emitter, cancelTokenSource),
 			customUserAgent: getAmplifyUserAgent(),
 		});
 		client.middlewareStack.remove(SET_CONTENT_LENGTH_HEADER);
+		client.middlewareStack.add(
+			createPrefixMiddleware(this.opts, this.params.Key),
+			prefixMiddlewareOptions
+		);
 		return client;
 	}
 

@@ -22,6 +22,7 @@ import {
 	isModelAttributeKey,
 	isModelAttributePrimaryKey,
 	isModelAttributeCompositeKey,
+	NonModelTypeConstructor,
 } from './types';
 import { WordArray } from 'amazon-cognito-identity-js';
 
@@ -129,6 +130,18 @@ export const isModelConstructor = <T extends PersistentModel>(
 	return (
 		obj && typeof (<PersistentModelConstructor<T>>obj).copyOf === 'function'
 	);
+};
+
+const nonModelClasses = new WeakSet<NonModelTypeConstructor<any>>();
+
+export function registerNonModelClass(clazz: NonModelTypeConstructor<any>) {
+	nonModelClasses.add(clazz);
+}
+
+export const isNonModelConstructor = (
+	obj: any
+): obj is NonModelTypeConstructor<any> => {
+	return nonModelClasses.has(obj);
 };
 
 /* 
@@ -361,13 +374,12 @@ export const traverseModel = <T extends PersistentModel>(
 						}
 					}
 
-					(<any>draftInstance)[rItem.targetName] = draftInstance[
-						rItem.fieldName
-					]
-						? (<PersistentModel>draftInstance[rItem.fieldName]).id
-						: null;
-
-					delete draftInstance[rItem.fieldName];
+					if (draftInstance[rItem.fieldName]) {
+						(<any>draftInstance)[rItem.targetName] = (<PersistentModel>(
+							draftInstance[rItem.fieldName]
+						)).id;
+						delete draftInstance[rItem.fieldName];
+					}
 
 					break;
 				case 'HAS_MANY':

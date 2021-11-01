@@ -23,7 +23,7 @@ import {
 	AbortMultipartUploadCommand,
 	ListPartsCommand,
 } from '@aws-sdk/client-s3';
-import { Logger } from "@aws-amplify/core";
+import { Logger } from '@aws-amplify/core';
 import * as events from 'events';
 import * as sinon from 'sinon';
 
@@ -36,6 +36,8 @@ const testParams: any = {
 	Key: 'testKey',
 	Body: 'testDataBody',
 	ContentType: 'testContentType',
+	SSECustomerAlgorithm: 'AES256',
+	SSECustomerKey: '1234567890',
 };
 
 const credentials = {
@@ -65,7 +67,7 @@ class TestClass extends AWSS3ProviderManagedUpload {
 		await super.uploadParts(uploadId, parts);
 		// Now trigger some notifications from the event listeners
 		for (const part of parts) {
-			part.emitter.emit('sendProgress', {
+			part.emitter.emit('sendUploadProgress', {
 				// Assume that the notification is send when 100% of part is uploaded
 				loaded: (part.bodyPart as string).length,
 			});
@@ -146,7 +148,7 @@ describe('multi part upload tests', () => {
 		// setup event handling
 		const emitter = new events.EventEmitter();
 		const eventSpy = sinon.spy();
-		emitter.on('sendProgress', eventSpy);
+		emitter.on('sendUploadProgress', eventSpy);
 
 		// Setup Spy for S3 service calls
 		const s3ServiceCallSpy = jest
@@ -181,6 +183,8 @@ describe('multi part upload tests', () => {
 			Key: testParams.Key,
 			PartNumber: 1,
 			UploadId: testUploadId,
+			SSECustomerAlgorithm: testParams.SSECustomerAlgorithm,
+			SSECustomerKey: testParams.SSECustomerKey,
 		});
 		expect(s3ServiceCallSpy.mock.calls[2][0].input).toStrictEqual({
 			Body: testParams.Body.slice(testMinPartSize, testParams.Body.length),
@@ -188,6 +192,8 @@ describe('multi part upload tests', () => {
 			Key: testParams.Key,
 			PartNumber: 2,
 			UploadId: testUploadId,
+			SSECustomerAlgorithm: testParams.SSECustomerAlgorithm,
+			SSECustomerKey: testParams.SSECustomerKey,
 		});
 
 		// Lastly complete multi part upload call
@@ -230,7 +236,7 @@ describe('multi part upload tests', () => {
 		// setup event handling
 		const emitter = new events.EventEmitter();
 		const eventSpy = sinon.spy();
-		emitter.on('sendProgress', eventSpy);
+		emitter.on('sendUploadProgress', eventSpy);
 
 		// Setup Spy for S3 service calls and introduce a service failure
 		const s3ServiceCallSpy = jest
@@ -284,6 +290,8 @@ describe('multi part upload tests', () => {
 			Key: testParams.Key,
 			PartNumber: 1,
 			UploadId: testUploadId,
+			SSECustomerAlgorithm: testParams.SSECustomerAlgorithm,
+			SSECustomerKey: testParams.SSECustomerKey,
 		});
 
 		// Second call fails
@@ -293,6 +301,8 @@ describe('multi part upload tests', () => {
 			Key: testParams.Key,
 			PartNumber: 2,
 			UploadId: testUploadId,
+			SSECustomerAlgorithm: testParams.SSECustomerAlgorithm,
+			SSECustomerKey: testParams.SSECustomerKey,
 		});
 
 		// so we abort the multipart upload
@@ -374,6 +384,6 @@ describe('multi part upload tests', () => {
 			'ERROR',
 			'error happened while finishing the upload. Cancelling the multipart upload',
 			'error'
-		)
+		);
 	});
 });
