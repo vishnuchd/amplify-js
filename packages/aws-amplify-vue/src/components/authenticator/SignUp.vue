@@ -15,6 +15,12 @@
   <div v-bind:class="amplifyUI.formSection" v-bind:data-test="auth.signUp.section">
     <div v-bind:class="amplifyUI.sectionHeader" v-bind:data-test="auth.signUp.headerSection">{{this.options.header}}</div>
     <div v-bind:class="amplifyUI.sectionBody" v-bind:data-test="auth.signUp.bodySection">
+			      <div class="row">
+			        <div class="col-12 google">
+			          <a class="btn" href="#"><img style="height:16px; width: 16px; margin-left: 5px; "
+			                                       src="https://www.shareicon.net/data/2016/07/10/119930_google_512x512.png">
+			            Continue with Google</a></div>
+			      </div>
       <div v-bind:class="amplifyUI.formField"
           v-for="signUpField in this.orderedSignUpFields"
           :signUpField="signUpField.key"
@@ -32,7 +38,7 @@
             />
           </div>
         <div v-if="signUpField.key === 'phone_number'">
-          <amplify-phone-field 
+          <amplify-phone-field
             v-bind:required="signUpField.required"
             v-bind:invalid="signUpField.invalid"
             v-bind:placeholder="signUpField.placeholder"
@@ -121,7 +127,7 @@ export default {
             }
           });
         }
-        /* 
+        /*
           sort fields based on following rules:
           1. Fields with displayOrder are sorted before those without displayOrder
           2. Fields with conflicting displayOrder are sorted alphabetically by key
@@ -153,7 +159,7 @@ export default {
           }
         });
       }
-      
+
       return Object.assign({header, signUpFields: this.defaultSignUpFields}, this.signUpConfig || {});
     },
     orderedSignUpFields: function () {
@@ -201,7 +207,7 @@ export default {
         // Or make the label of the field the same as the 'usernameAttributes'
         throw new Error(`Couldn't find the label: ${this.getUsernameLabel()}, in sign up fields according to usernameAttributes!`);
       }
-        
+
       this.$Amplify.Auth.signUp(user)
             .then(data => {
               this.logger.info('sign up success');
